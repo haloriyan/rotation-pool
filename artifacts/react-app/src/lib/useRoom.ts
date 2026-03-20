@@ -35,19 +35,28 @@ export function useRoom(roomId: string | null, username: string | null) {
   useEffect(() => {
     if (!roomId || !username) return;
 
+    let cancelled = false;
+
     setState({ status: "connecting", players: [] });
 
     const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (cancelled) {
+        ws.close();
+        return;
+      }
       ws.send(JSON.stringify({ type: "join", roomId, username }));
       pingRef.current = setInterval(() => {
-        ws.send(JSON.stringify({ type: "ping" }));
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
       }, 25000);
     };
 
     ws.onmessage = (event) => {
+      if (cancelled) return;
       let msg: { type: string; players?: Player[]; username?: string };
       try {
         msg = JSON.parse(event.data as string);
@@ -63,16 +72,21 @@ export function useRoom(roomId: string | null, username: string | null) {
     };
 
     ws.onclose = () => {
-      setState((prev) => ({ ...prev, status: "disconnected" }));
       if (pingRef.current) clearInterval(pingRef.current);
+      if (!cancelled) {
+        setState((prev) => ({ ...prev, status: "disconnected" }));
+      }
     };
 
     ws.onerror = () => {
-      setState({ status: "error", players: [], error: "Connection failed" });
       if (pingRef.current) clearInterval(pingRef.current);
+      if (!cancelled) {
+        setState({ status: "error", players: [], error: "Connection failed" });
+      }
     };
 
     return () => {
+      cancelled = true;
       if (pingRef.current) clearInterval(pingRef.current);
       ws.close();
     };
