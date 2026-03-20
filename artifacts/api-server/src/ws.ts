@@ -192,9 +192,11 @@ export function attachWebSocketServer(server: Server) {
           gs.pocketedBalls = [...gs.pocketedBalls, ball];
         }
 
+        const cp = gs.turnOrder[gs.currentPlayerIndex];
         if (result === "in") {
-          const cp = gs.turnOrder[gs.currentPlayerIndex];
           gs.scores[cp] = (gs.scores[cp] ?? 0) + ball;
+        } else {
+          gs.scores[cp] = (gs.scores[cp] ?? 0) - ball;
         }
 
         gs.targetBall = getNextTargetBall(gs.pocketedBalls);
