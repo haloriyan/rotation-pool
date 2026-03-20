@@ -15,7 +15,7 @@ interface RoomState {
 
 function getWsUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/api/ws`;
+  return `${proto}//${window.location.host}/ws`;
 }
 
 export function useRoom(roomId: string | null, username: string | null) {

@@ -75,7 +75,7 @@ function removeClientFromRooms(ws: WebSocket) {
 }
 
 export function attachWebSocketServer(server: Server) {
-  const wss = new WebSocketServer({ server, path: "/api/ws" });
+  const wss = new WebSocketServer({ server, path: "/ws" });
 
   wss.on("connection", (ws: WebSocket, _req: IncomingMessage) => {
     logger.info("WebSocket client connected");
@@ -137,5 +137,5 @@ export function attachWebSocketServer(server: Server) {
     });
   });
 
-  logger.info("WebSocket server attached at /api/ws");
+  logger.info("WebSocket server attached at /ws");
 }
