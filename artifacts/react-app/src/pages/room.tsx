@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
+import { Share2, Check } from "lucide-react";
 import { useRoom } from "@/lib/useRoom";
 import { Button } from "@/components/ui/button";
 
@@ -7,11 +9,27 @@ export default function Room() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const username = searchParams.get("username") ?? "";
+  const [copied, setCopied] = useState(false);
 
   const { status, players, error } = useRoom(roomId ?? null, username);
 
   function handleLeave() {
     navigate("/");
+  }
+
+  async function handleShare() {
+    const joinUrl = `${window.location.origin}/join/${roomId}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Join my Rotation Pool room", url: joinUrl });
+        return;
+      } catch {
+        // cancelled or not supported, fall through to clipboard
+      }
+    }
+    await navigator.clipboard.writeText(joinUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   return (
@@ -21,14 +39,29 @@ export default function Room() {
           <h1 className="text-xl font-bold text-white">🎱 Room</h1>
           <p className="text-xs text-gray-500 font-mono mt-0.5 break-all">{roomId}</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="border-gray-700 text-gray-300 hover:bg-gray-800"
-          onClick={handleLeave}
-        >
-          Leave
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            className="border-gray-700 text-gray-300 hover:bg-gray-800 h-8 w-8"
+            onClick={handleShare}
+            title="Share room link"
+          >
+            {copied ? (
+              <Check className="h-4 w-4 text-green-400" />
+            ) : (
+              <Share2 className="h-4 w-4" />
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-gray-700 text-gray-300 hover:bg-gray-800"
+            onClick={handleLeave}
+          >
+            Leave
+          </Button>
+        </div>
       </div>
 
       <div className="w-full max-w-md">

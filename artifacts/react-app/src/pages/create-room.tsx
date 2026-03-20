@@ -20,20 +20,21 @@ export default function CreateRoom() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-8 px-4">
+    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-6 px-4">
       <div className="text-center">
         <h1 className="text-2xl font-bold text-white">Room Created</h1>
         <p className="mt-1 text-gray-400 text-sm">
-          Share this QR code with other players to join
+          Scan with any camera app or share the link to invite players
         </p>
       </div>
 
-      <div className="bg-white p-4 rounded-2xl shadow-lg">
-        <QRCodeSVG value={joinUrl} size={220} />
-      </div>
-
-      <div className="text-center">
-        <p className="text-xs text-gray-500 font-mono break-all max-w-xs">{roomId}</p>
+      <div className="flex flex-col items-center gap-2">
+        <div className="bg-white p-4 rounded-2xl shadow-lg">
+          <QRCodeSVG value={joinUrl} size={220} />
+        </div>
+        <p className="text-xs text-gray-600 font-mono break-all max-w-xs text-center">
+          {joinUrl}
+        </p>
       </div>
 
       <form onSubmit={handleEnterRoom} className="w-full max-w-xs flex flex-col gap-3">

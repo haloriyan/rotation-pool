@@ -5,6 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+const UUID_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+function extractRoomId(raw: string): string | null {
+  const match = raw.match(UUID_REGEX);
+  return match ? match[0] : null;
+}
+
 export default function JoinRoom() {
   const { roomId: paramRoomId } = useParams<{ roomId?: string }>();
   const navigate = useNavigate();
@@ -13,7 +20,6 @@ export default function JoinRoom() {
   const [username, setUsername] = useState("");
   const [scanning, setScanning] = useState(!paramRoomId);
   const [scanError, setScanError] = useState("");
-  const scannerRef = useRef<Html5Qrcode | null>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -28,32 +34,18 @@ export default function JoinRoom() {
 
     const scannerId = "qr-reader";
     const html5QrCode = new Html5Qrcode(scannerId);
-    scannerRef.current = html5QrCode;
 
     html5QrCode
       .start(
         { facingMode: "environment" },
         { fps: 10, qrbox: { width: 250, height: 250 } },
         (decodedText) => {
-          try {
-            const url = new URL(decodedText);
-            const parts = url.pathname.split("/");
-            const id = parts[parts.length - 1];
-            if (id) {
-              html5QrCode.stop().catch(() => {});
-              if (mountedRef.current) {
-                setRoomId(id);
-                setScanning(false);
-              }
-            }
-          } catch {
-            const trimmed = decodedText.trim();
-            if (trimmed) {
-              html5QrCode.stop().catch(() => {});
-              if (mountedRef.current) {
-                setRoomId(trimmed);
-                setScanning(false);
-              }
+          const id = extractRoomId(decodedText);
+          if (id) {
+            html5QrCode.stop().catch(() => {});
+            if (mountedRef.current) {
+              setRoomId(id);
+              setScanning(false);
             }
           }
         },
