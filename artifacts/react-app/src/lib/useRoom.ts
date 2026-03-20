@@ -5,11 +5,22 @@ export interface Player {
   joinedAt: number;
 }
 
+export interface GameState {
+  started: boolean;
+  turnOrder: string[];
+  currentPlayerIndex: number;
+  targetBall: number;
+  pocketedBalls: number[];
+  scores: Record<string, number>;
+  finished: boolean;
+}
+
 type RoomStatus = "idle" | "connecting" | "connected" | "disconnected" | "error";
 
 interface RoomState {
   status: RoomStatus;
   players: Player[];
+  gameState: GameState | null;
   error?: string;
 }
 
@@ -24,6 +35,7 @@ export function useRoom(roomId: string | null, username: string | null) {
   const [state, setState] = useState<RoomState>({
     status: "idle",
     players: [],
+    gameState: null,
   });
 
   const send = useCallback((payload: object) => {
@@ -36,17 +48,13 @@ export function useRoom(roomId: string | null, username: string | null) {
     if (!roomId || !username) return;
 
     let cancelled = false;
-
-    setState({ status: "connecting", players: [] });
+    setState({ status: "connecting", players: [], gameState: null });
 
     const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
 
     ws.onopen = () => {
-      if (cancelled) {
-        ws.close();
-        return;
-      }
+      if (cancelled) { ws.close(); return; }
       ws.send(JSON.stringify({ type: "join", roomId, username }));
       pingRef.current = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -57,7 +65,11 @@ export function useRoom(roomId: string | null, username: string | null) {
 
     ws.onmessage = (event) => {
       if (cancelled) return;
-      let msg: { type: string; players?: Player[]; username?: string };
+      let msg: {
+        type: string;
+        players?: Player[];
+        gameState?: GameState | null;
+      };
       try {
         msg = JSON.parse(event.data as string);
       } catch {
@@ -65,24 +77,30 @@ export function useRoom(roomId: string | null, username: string | null) {
       }
 
       if (msg.type === "joined") {
-        setState({ status: "connected", players: msg.players ?? [] });
+        setState({
+          status: "connected",
+          players: msg.players ?? [],
+          gameState: msg.gameState ?? null,
+        });
       } else if (msg.type === "player_joined" || msg.type === "player_left") {
-        setState((prev) => ({ ...prev, players: msg.players ?? [] }));
+        setState((prev) => ({
+          ...prev,
+          players: msg.players ?? prev.players,
+          gameState: msg.gameState !== undefined ? msg.gameState : prev.gameState,
+        }));
+      } else if (msg.type === "game_state") {
+        setState((prev) => ({ ...prev, gameState: msg.gameState ?? null }));
       }
     };
 
     ws.onclose = () => {
       if (pingRef.current) clearInterval(pingRef.current);
-      if (!cancelled) {
-        setState((prev) => ({ ...prev, status: "disconnected" }));
-      }
+      if (!cancelled) setState((prev) => ({ ...prev, status: "disconnected" }));
     };
 
     ws.onerror = () => {
       if (pingRef.current) clearInterval(pingRef.current);
-      if (!cancelled) {
-        setState({ status: "error", players: [], error: "Connection failed" });
-      }
+      if (!cancelled) setState({ status: "error", players: [], gameState: null, error: "Connection failed" });
     };
 
     return () => {
