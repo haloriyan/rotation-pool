@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { Share2, Check } from "lucide-react";
 import { useRoom } from "@/lib/useRoom";
 import { BallPicker } from "@/components/BallPicker";
+import { RejectionBanner } from "@/components/RejectionBanner";
 import { Button } from "@/components/ui/button";
 
 const BALL_COLORS: Record<number, string> = {
@@ -19,37 +20,22 @@ function Miniball({ n }: { n: number }) {
   const isStripe = n >= 9;
   const color = getBallColor(n);
   return (
-    <div
-      style={{
-        width: 20,
-        height: 20,
-        borderRadius: "50%",
-        backgroundColor: isStripe ? "white" : color,
-        position: "relative",
-        overflow: "hidden",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-        flexShrink: 0,
-      }}
-    >
+    <div style={{
+      width: 20, height: 20, borderRadius: "50%",
+      backgroundColor: isStripe ? "white" : color,
+      position: "relative", overflow: "hidden",
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      boxShadow: "0 1px 3px rgba(0,0,0,0.4)", flexShrink: 0,
+    }}>
       {isStripe && (
         <div style={{ position: "absolute", left: 0, right: 0, top: "28%", bottom: "28%", backgroundColor: color }} />
       )}
-      <div
-        style={{
-          position: "relative",
-          zIndex: 1,
-          width: 10,
-          height: 10,
-          borderRadius: "50%",
-          backgroundColor: "white",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
+      <div style={{
+        position: "relative", zIndex: 1,
+        width: 10, height: 10, borderRadius: "50%",
+        backgroundColor: "white",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
         <span style={{ fontSize: 6, fontWeight: "bold", color: n === 8 ? "#111" : color, lineHeight: 1 }}>{n}</span>
       </div>
     </div>
@@ -63,45 +49,61 @@ export default function Room() {
   const username = searchParams.get("username") ?? "";
   const [copied, setCopied] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [hasRejected, setHasRejected] = useState(false);
 
-  const { status, players, gameState, send } = useRoom(roomId ?? null, username);
+  const { status, players, gameState, pendingPoll, send } = useRoom(roomId ?? null, username);
 
   const isMyTurn =
     gameState?.started &&
     !gameState.finished &&
     gameState.turnOrder[gameState.currentPlayerIndex] === username;
 
-  const currentPlayer = gameState
-    ? gameState.turnOrder[gameState.currentPlayerIndex]
-    : null;
+  const currentPlayer = gameState ? gameState.turnOrder[gameState.currentPlayerIndex] : null;
+  const isPollActive = !!pendingPoll && !pendingPoll.rejected;
+  const isActor = pendingPoll?.actor === username;
 
-  function handleLeave() {
-    navigate("/");
-  }
+  // Reset rejection flag when a new poll starts
+  useEffect(() => {
+    if (pendingPoll && !pendingPoll.rejected) {
+      setHasRejected(false);
+    }
+  }, [pendingPoll?.pollId]);
+
+  // Re-open picker if the poll was rejected and we were the actor
+  useEffect(() => {
+    if (pendingPoll?.rejected && pendingPoll.actor === username) {
+      setPickerOpen(true);
+    }
+  }, [pendingPoll?.rejected, pendingPoll?.actor, username]);
+
+  function handleLeave() { navigate("/"); }
 
   async function handleShare() {
     const joinUrl = `${window.location.origin}/join/${roomId}`;
     if (navigator.share) {
-      try {
-        await navigator.share({ title: "Join my Rotation Pool room", url: joinUrl });
-        return;
-      } catch { /* fallthrough */ }
+      try { await navigator.share({ title: "Join my Rotation Pool room", url: joinUrl }); return; }
+      catch { /* fallthrough */ }
     }
     await navigator.clipboard.writeText(joinUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
 
-  function handleStartGame() {
-    send({ type: "start_game", roomId });
-  }
+  function handleStartGame() { send({ type: "start_game", roomId }); }
 
   function handleBallResult(ball: number, result: "in" | "foul") {
     send({ type: "ball_result", roomId, ball, result });
+    setPickerOpen(false);
+  }
+
+  function handleReject() {
+    if (!pendingPoll) return;
+    send({ type: "reject_pocket", roomId, pollId: pendingPoll.pollId });
+    setHasRejected(true);
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-start px-4 pt-10 gap-6">
+    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-start px-4 pt-10 gap-6 pb-32">
       {/* Header */}
       <div className="w-full max-w-md flex items-center justify-between">
         <div>
@@ -110,17 +112,14 @@ export default function Room() {
         </div>
         <div className="flex items-center gap-2">
           <Button
-            variant="outline"
-            size="icon"
+            variant="outline" size="icon"
             className="border-gray-700 text-gray-300 hover:bg-gray-800 h-8 w-8"
-            onClick={handleShare}
-            title="Share room link"
+            onClick={handleShare} title="Share room link"
           >
             {copied ? <Check className="h-4 w-4 text-green-400" /> : <Share2 className="h-4 w-4" />}
           </Button>
           <Button
-            variant="outline"
-            size="sm"
+            variant="outline" size="sm"
             className="border-gray-700 text-gray-300 hover:bg-gray-800"
             onClick={handleLeave}
           >
@@ -129,16 +128,12 @@ export default function Room() {
         </div>
       </div>
 
-      {/* Game state: not started */}
+      {/* Lobby */}
       {!gameState?.started && status === "connected" && (
         <div className="w-full max-w-md">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Players</h2>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-              status === "connected" ? "bg-green-900 text-green-300" : "bg-yellow-900 text-yellow-300"
-            }`}>
-              {status === "connected" ? "Connected" : "Connecting…"}
-            </span>
+            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-900 text-green-300">Connected</span>
           </div>
           <div className="flex flex-col gap-2 mb-4">
             {players.map((p) => (
@@ -169,9 +164,7 @@ export default function Room() {
         <div className="w-full max-w-md flex flex-col gap-4">
           {/* Current turn banner */}
           <div className={`rounded-xl px-4 py-3 border flex items-center gap-3 ${
-            isMyTurn
-              ? "bg-green-950 border-green-700"
-              : "bg-gray-900 border-gray-800"
+            isMyTurn ? "bg-green-950 border-green-700" : "bg-gray-900 border-gray-800"
           }`}>
             <div>
               <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-0.5">
@@ -186,13 +179,14 @@ export default function Room() {
             </div>
           </div>
 
-          {/* Pick ball button (when it's my turn) */}
+          {/* Pick ball button */}
           {isMyTurn && (
             <Button
-              className="w-full bg-green-600 hover:bg-green-700 text-white font-bold"
+              className="w-full bg-green-600 hover:bg-green-700 text-white font-bold disabled:opacity-50"
               onClick={() => setPickerOpen(true)}
+              disabled={isPollActive}
             >
-              Pick a Ball
+              {isPollActive && isActor ? "Waiting for confirmation…" : "Pick a Ball"}
             </Button>
           )}
 
@@ -206,9 +200,7 @@ export default function Room() {
                   <div
                     key={player}
                     className={`flex items-center gap-3 rounded-xl px-4 py-3 border ${
-                      isCurrent
-                        ? "bg-gray-800 border-gray-600"
-                        : "bg-gray-900 border-gray-800"
+                      isCurrent ? "bg-gray-800 border-gray-600" : "bg-gray-900 border-gray-800"
                     }`}
                   >
                     <span className="text-gray-500 text-sm w-5 text-center font-mono">{i + 1}</span>
@@ -293,6 +285,16 @@ export default function Room() {
           onOpenChange={setPickerOpen}
           gameState={gameState}
           onResult={handleBallResult}
+        />
+      )}
+
+      {/* Rejection poll banner */}
+      {pendingPoll && (
+        <RejectionBanner
+          poll={pendingPoll}
+          isActor={isActor}
+          hasRejected={hasRejected}
+          onReject={handleReject}
         />
       )}
     </div>

@@ -15,12 +15,24 @@ export interface GameState {
   finished: boolean;
 }
 
+export interface PendingPoll {
+  pollId: string;
+  ball: number;
+  result: "in" | "foul";
+  actor: string;
+  expiresAt: number;
+  eligibleCount: number;
+  rejected: boolean;
+  rejections?: number;
+}
+
 type RoomStatus = "idle" | "connecting" | "connected" | "disconnected" | "error";
 
 interface RoomState {
   status: RoomStatus;
   players: Player[];
   gameState: GameState | null;
+  pendingPoll: PendingPoll | null;
   error?: string;
 }
 
@@ -32,10 +44,12 @@ function getWsUrl(): string {
 export function useRoom(roomId: string | null, username: string | null) {
   const wsRef = useRef<WebSocket | null>(null);
   const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const clearPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [state, setState] = useState<RoomState>({
     status: "idle",
     players: [],
     gameState: null,
+    pendingPoll: null,
   });
 
   const send = useCallback((payload: object) => {
@@ -48,7 +62,7 @@ export function useRoom(roomId: string | null, username: string | null) {
     if (!roomId || !username) return;
 
     let cancelled = false;
-    setState({ status: "connecting", players: [], gameState: null });
+    setState({ status: "connecting", players: [], gameState: null, pendingPoll: null });
 
     const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
@@ -65,31 +79,65 @@ export function useRoom(roomId: string | null, username: string | null) {
 
     ws.onmessage = (event) => {
       if (cancelled) return;
-      let msg: {
-        type: string;
-        players?: Player[];
-        gameState?: GameState | null;
-      };
+      let msg: Record<string, unknown>;
       try {
-        msg = JSON.parse(event.data as string);
+        msg = JSON.parse(event.data as string) as Record<string, unknown>;
       } catch {
         return;
       }
 
-      if (msg.type === "joined") {
+      const type = msg.type as string;
+
+      if (type === "joined") {
         setState({
           status: "connected",
-          players: msg.players ?? [],
-          gameState: msg.gameState ?? null,
+          players: (msg.players as Player[]) ?? [],
+          gameState: (msg.gameState as GameState) ?? null,
+          pendingPoll: null,
         });
-      } else if (msg.type === "player_joined" || msg.type === "player_left") {
+      } else if (type === "player_joined" || type === "player_left") {
         setState((prev) => ({
           ...prev,
-          players: msg.players ?? prev.players,
-          gameState: msg.gameState !== undefined ? msg.gameState : prev.gameState,
+          players: (msg.players as Player[]) ?? prev.players,
+          gameState: msg.gameState !== undefined ? (msg.gameState as GameState) : prev.gameState,
         }));
-      } else if (msg.type === "game_state") {
-        setState((prev) => ({ ...prev, gameState: msg.gameState ?? null }));
+      } else if (type === "game_state") {
+        setState((prev) => ({ ...prev, gameState: (msg.gameState as GameState) ?? null }));
+      } else if (type === "rejection_poll") {
+        setState((prev) => ({
+          ...prev,
+          pendingPoll: {
+            pollId: msg.pollId as string,
+            ball: msg.ball as number,
+            result: msg.result as "in" | "foul",
+            actor: msg.actor as string,
+            expiresAt: msg.expiresAt as number,
+            eligibleCount: msg.eligibleCount as number,
+            rejected: false,
+          },
+        }));
+      } else if (type === "pocket_confirmed") {
+        if (clearPollRef.current) clearTimeout(clearPollRef.current);
+        setState((prev) => ({
+          ...prev,
+          gameState: (msg.gameState as GameState) ?? prev.gameState,
+          pendingPoll: null,
+        }));
+      } else if (type === "pocket_rejected") {
+        if (clearPollRef.current) clearTimeout(clearPollRef.current);
+        setState((prev) => ({
+          ...prev,
+          pendingPoll: prev.pendingPoll
+            ? {
+                ...prev.pendingPoll,
+                rejected: true,
+                rejections: msg.rejections as number,
+              }
+            : null,
+        }));
+        clearPollRef.current = setTimeout(() => {
+          setState((prev) => ({ ...prev, pendingPoll: null }));
+        }, 3000);
       }
     };
 
@@ -100,12 +148,15 @@ export function useRoom(roomId: string | null, username: string | null) {
 
     ws.onerror = () => {
       if (pingRef.current) clearInterval(pingRef.current);
-      if (!cancelled) setState({ status: "error", players: [], gameState: null, error: "Connection failed" });
+      if (!cancelled) {
+        setState({ status: "error", players: [], gameState: null, pendingPoll: null, error: "Connection failed" });
+      }
     };
 
     return () => {
       cancelled = true;
       if (pingRef.current) clearInterval(pingRef.current);
+      if (clearPollRef.current) clearTimeout(clearPollRef.current);
       ws.close();
     };
   }, [roomId, username]);

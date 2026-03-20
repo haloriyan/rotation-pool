@@ -18,11 +18,22 @@ export interface GameState {
   finished: boolean;
 }
 
+interface PendingPocket {
+  pollId: string;
+  ball: number;
+  result: "in" | "foul";
+  actorUsername: string;
+  rejections: Set<string>;
+  eligibleVoters: string[];
+  timer: ReturnType<typeof setTimeout>;
+}
+
 interface Room {
   id: string;
   players: Map<WebSocket, Player>;
   createdAt: number;
   gameState: GameState | null;
+  pendingPocket: PendingPocket | null;
 }
 
 type ClientMessage =
@@ -30,7 +41,10 @@ type ClientMessage =
   | { type: "leave"; roomId: string }
   | { type: "start_game"; roomId: string }
   | { type: "ball_result"; roomId: string; ball: number; result: "in" | "foul" }
+  | { type: "reject_pocket"; roomId: string; pollId: string }
   | { type: "ping" };
+
+const POLL_DURATION_MS = 10_000;
 
 const rooms = new Map<string, Room>();
 
@@ -41,6 +55,7 @@ function getOrCreateRoom(roomId: string): Room {
       players: new Map(),
       createdAt: Date.now(),
       gameState: null,
+      pendingPocket: null,
     });
   }
   return rooms.get(roomId)!;
@@ -66,6 +81,10 @@ function getNextTargetBall(pocketedBalls: number[]): number {
   return 0;
 }
 
+function uid(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
 function broadcastAll(room: Room, payload: object) {
   const msg = JSON.stringify(payload);
   for (const [ws] of room.players) {
@@ -84,6 +103,50 @@ function sendTo(ws: WebSocket, payload: object) {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
 }
 
+function applyBallResult(gs: GameState, ball: number, result: "in" | "foul") {
+  if (!gs.pocketedBalls.includes(ball)) {
+    gs.pocketedBalls = [...gs.pocketedBalls, ball];
+  }
+  const cp = gs.turnOrder[gs.currentPlayerIndex];
+  if (result === "in") {
+    gs.scores[cp] = (gs.scores[cp] ?? 0) + ball;
+  } else {
+    gs.scores[cp] = (gs.scores[cp] ?? 0) - ball;
+  }
+  gs.targetBall = getNextTargetBall(gs.pocketedBalls);
+  if (gs.pocketedBalls.length >= 15) gs.finished = true;
+  gs.currentPlayerIndex = (gs.currentPlayerIndex + 1) % gs.turnOrder.length;
+}
+
+function resolvePoll(room: Room, roomId: string) {
+  const pp = room.pendingPocket;
+  if (!pp || !room.gameState) return;
+  room.pendingPocket = null;
+
+  const rejectionRatio = pp.rejections.size / pp.eligibleVoters.length;
+
+  if (rejectionRatio > 0.25) {
+    broadcastAll(room, {
+      type: "pocket_rejected",
+      pollId: pp.pollId,
+      ball: pp.ball,
+      result: pp.result,
+      actor: pp.actorUsername,
+      rejections: pp.rejections.size,
+      eligible: pp.eligibleVoters.length,
+    });
+    logger.info({ roomId, ball: pp.ball, rejections: pp.rejections.size }, "Pocket rejected by vote");
+  } else {
+    applyBallResult(room.gameState, pp.ball, pp.result);
+    broadcastAll(room, {
+      type: "pocket_confirmed",
+      pollId: pp.pollId,
+      gameState: room.gameState,
+    });
+    logger.info({ roomId, ball: pp.ball, result: pp.result }, "Pocket confirmed");
+  }
+}
+
 function removeClientFromRooms(ws: WebSocket) {
   for (const [roomId, room] of rooms) {
     if (room.players.has(ws)) {
@@ -100,6 +163,7 @@ function removeClientFromRooms(ws: WebSocket) {
       logger.info({ roomId, username: player.username }, "Player left room");
 
       if (room.players.size === 0) {
+        if (room.pendingPocket) clearTimeout(room.pendingPocket.timer);
         rooms.delete(roomId);
         logger.info({ roomId }, "Room deleted (empty)");
       }
@@ -161,8 +225,6 @@ export function attachWebSocketServer(server: Server) {
         if (!room || room.gameState?.started) return;
 
         const players = getPlayersArray(room);
-        if (players.length < 1) return;
-
         const turnOrder = shuffle(players.map((p) => p.username));
         const scores: Record<string, number> = {};
         for (const p of turnOrder) scores[p] = 0;
@@ -185,30 +247,66 @@ export function attachWebSocketServer(server: Server) {
         const { roomId, ball, result } = msg;
         const room = rooms.get(roomId);
         if (!room?.gameState?.started || room.gameState.finished) return;
+        if (room.pendingPocket) return;
 
         const gs = room.gameState;
+        const actorUsername = gs.turnOrder[gs.currentPlayerIndex];
+        const eligibleVoters = getPlayersArray(room)
+          .map((p) => p.username)
+          .filter((u) => u !== actorUsername);
 
-        if (!gs.pocketedBalls.includes(ball)) {
-          gs.pocketedBalls = [...gs.pocketedBalls, ball];
+        if (eligibleVoters.length === 0) {
+          applyBallResult(gs, ball, result);
+          broadcastAll(room, { type: "pocket_confirmed", pollId: null, gameState: gs });
+          return;
         }
 
-        const cp = gs.turnOrder[gs.currentPlayerIndex];
-        if (result === "in") {
-          gs.scores[cp] = (gs.scores[cp] ?? 0) + ball;
-        } else {
-          gs.scores[cp] = (gs.scores[cp] ?? 0) - ball;
+        const pollId = uid();
+        const expiresAt = Date.now() + POLL_DURATION_MS;
+
+        room.pendingPocket = {
+          pollId,
+          ball,
+          result,
+          actorUsername,
+          rejections: new Set(),
+          eligibleVoters,
+          timer: setTimeout(() => resolvePoll(room, roomId), POLL_DURATION_MS),
+        };
+
+        broadcastAll(room, {
+          type: "rejection_poll",
+          pollId,
+          ball,
+          result,
+          actor: actorUsername,
+          expiresAt,
+          eligibleCount: eligibleVoters.length,
+        });
+
+        logger.info({ roomId, ball, result, actor: actorUsername }, "Rejection poll started");
+      }
+
+      if (msg.type === "reject_pocket") {
+        const { roomId, pollId } = msg;
+        const room = rooms.get(roomId);
+        if (!room?.pendingPocket || room.pendingPocket.pollId !== pollId) return;
+
+        const player = room.players.get(ws);
+        if (!player) return;
+
+        const pp = room.pendingPocket;
+        if (!pp.eligibleVoters.includes(player.username)) return;
+
+        pp.rejections.add(player.username);
+
+        const rejectionRatio = pp.rejections.size / pp.eligibleVoters.length;
+        const allVoted = pp.rejections.size === pp.eligibleVoters.length;
+
+        if (rejectionRatio > 0.25 || allVoted) {
+          clearTimeout(pp.timer);
+          resolvePoll(room, roomId);
         }
-
-        gs.targetBall = getNextTargetBall(gs.pocketedBalls);
-
-        if (gs.pocketedBalls.length >= 15) {
-          gs.finished = true;
-        }
-
-        gs.currentPlayerIndex = (gs.currentPlayerIndex + 1) % gs.turnOrder.length;
-
-        broadcastAll(room, { type: "game_state", gameState: gs });
-        logger.info({ roomId, ball, result }, "Ball result recorded");
       }
     });
 
