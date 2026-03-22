@@ -160,33 +160,9 @@ export function BallPicker({ open, onOpenChange, gameState, onResult }: BallPick
 
           <div className="border-t border-gray-800 mb-4" />
 
-          {/* 4-column ball grid */}
-          <div className="grid grid-cols-4 gap-3 justify-items-center">
-            {ALL_BALLS.map((n) => {
-              const pocketed = pocketedBalls.includes(n);
-              return (
-                <button
-                  key={n}
-                  onClick={() => handleBallClick(n)}
-                  disabled={pocketed}
-                  className="active:scale-95 transition-transform disabled:cursor-not-allowed"
-                >
-                  <PoolBall
-                    number={n}
-                    size={64}
-                    dimmed={pocketed}
-                    selected={selectedBall === n}
-                  />
-                </button>
-              );
-            })}
-            {/* 16th empty tile to complete 4x4 */}
-            <div className="w-16 h-16" />
-          </div>
-
-          {/* Confirmation row */}
+          {/* IN / FOUL confirmation — above the grid once a ball is selected */}
           {selectedBall !== null && (
-            <div className="mt-5 p-4 bg-gray-900 rounded-2xl border border-gray-800">
+            <div className="mb-4 p-4 bg-gray-900 rounded-2xl border border-gray-800">
               <div className="flex items-center gap-3 mb-3">
                 <PoolBall number={selectedBall} size={40} />
                 <div>
@@ -212,6 +188,30 @@ export function BallPicker({ open, onOpenChange, gameState, onResult }: BallPick
               </div>
             </div>
           )}
+
+          {/* 4-column ball grid */}
+          <div className="grid grid-cols-4 gap-3 justify-items-center">
+            {ALL_BALLS.map((n) => {
+              const pocketed = pocketedBalls.includes(n);
+              return (
+                <button
+                  key={n}
+                  onClick={() => handleBallClick(n)}
+                  disabled={pocketed}
+                  className="active:scale-95 transition-transform disabled:cursor-not-allowed"
+                >
+                  <PoolBall
+                    number={n}
+                    size={64}
+                    dimmed={pocketed}
+                    selected={selectedBall === n}
+                  />
+                </button>
+              );
+            })}
+            {/* 16th empty tile to complete 4x4 */}
+            <div className="w-16 h-16" />
+          </div>
         </div>
       </DrawerContent>
     </Drawer>

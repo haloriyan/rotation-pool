@@ -32,9 +32,6 @@ export default function CreateRoom() {
         <div className="bg-white p-4 rounded-2xl shadow-lg">
           <QRCodeSVG value={joinUrl} size={220} />
         </div>
-        <p className="text-xs text-gray-600 font-mono break-all max-w-xs text-center">
-          {joinUrl}
-        </p>
       </div>
 
       <form onSubmit={handleEnterRoom} className="w-full max-w-xs flex flex-col gap-3">
