@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
-import { Share2, Check } from "lucide-react";
+import { Share2 } from "lucide-react";
 import { useRoom } from "@/lib/useRoom";
 import { BallPicker } from "@/components/BallPicker";
 import { RejectionBanner } from "@/components/RejectionBanner";
+import { ShareModal } from "@/components/ShareModal";
 import { Button } from "@/components/ui/button";
 
 const BALL_COLORS: Record<number, string> = {
@@ -47,7 +48,7 @@ export default function Room() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const username = searchParams.get("username") ?? "";
-  const [copied, setCopied] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [hasRejected, setHasRejected] = useState(false);
 
@@ -78,17 +79,6 @@ export default function Room() {
 
   function handleLeave() { navigate("/"); }
 
-  async function handleShare() {
-    const joinUrl = `${window.location.origin}/join/${roomId}`;
-    if (navigator.share) {
-      try { await navigator.share({ title: "Join my Rotation Pool room", url: joinUrl }); return; }
-      catch { /* fallthrough */ }
-    }
-    await navigator.clipboard.writeText(joinUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
   function handleStartGame() { send({ type: "start_game", roomId }); }
 
   function handleBallResult(ball: number, result: "in" | "foul") {
@@ -114,9 +104,9 @@ export default function Room() {
           <Button
             variant="outline" size="icon"
             className="border-gray-700 text-gray-300 hover:bg-gray-800 h-8 w-8"
-            onClick={handleShare} title="Share room link"
+            onClick={() => setShareOpen(true)} title="Share room link"
           >
-            {copied ? <Check className="h-4 w-4 text-green-400" /> : <Share2 className="h-4 w-4" />}
+            <Share2 className="h-4 w-4" />
           </Button>
           <Button
             variant="outline" size="sm"
@@ -277,6 +267,13 @@ export default function Room() {
           </div>
         </div>
       )}
+
+      {/* Share modal */}
+      <ShareModal
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        roomId={roomId ?? ""}
+      />
 
       {/* Ball picker drawer */}
       {gameState?.started && !gameState.finished && (
