@@ -115,21 +115,12 @@ export function RejectionBanner({ poll, isActor, hasRejected, onReject }: Props)
           You rejected this pocket ✓
         </div>
       ) : (
-        <div className="flex gap-2">
-          <Button
-            className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold"
-            onClick={onReject}
-          >
-            Reject ({secondsLeft}s)
-          </Button>
-          <Button
-            variant="outline"
-            className="flex-1 border-gray-600 text-gray-300 hover:bg-gray-800"
-            onClick={() => {}}
-          >
-            Accept
-          </Button>
-        </div>
+        <Button
+          className="w-full bg-red-600 hover:bg-red-700 text-white font-bold"
+          onClick={onReject}
+        >
+          Reject ({secondsLeft}s)
+        </Button>
       )}
     </div>
   );

@@ -44,7 +44,7 @@ type ClientMessage =
   | { type: "reject_pocket"; roomId: string; pollId: string }
   | { type: "ping" };
 
-const POLL_DURATION_MS = 10_000;
+const POLL_DURATION_MS = 5_000;
 
 const rooms = new Map<string, Room>();
 
